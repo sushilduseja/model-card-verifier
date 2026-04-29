@@ -1,4 +1,4 @@
-﻿"""Generate confirmatory and adversarial test cases for each claim."""
+"""Generate confirmatory and adversarial test cases for each claim."""
 import json
 import re
 import time
@@ -69,7 +69,7 @@ Output JSON array only:
 [{{"test_id": "t1", "claim_id": "{claim.claim_id}", "test_type": "confirmatory|adversarial",
   "prompt": "...", "expected_behavior": "...", "claim_text": "{claim.claim_text}"}}]"""
 
-    time.sleep(1.5)
+    time.sleep(3)
 
     for attempt in range(retries + 1):
         try:

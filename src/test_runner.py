@@ -1,10 +1,11 @@
-﻿"""Run test prompts against the model under audit."""
+"""Run test prompts against the model under audit."""
 import time
 import os
+import httpx
 import litellm
-from litellm import completion
 from litellm.exceptions import APIConnectionError, RateLimitError, Timeout
 from src.models import TestCase, TestResult
+from src.llm import _call_llm, _make_timeout
 
 litellm.suppress_debug_info = True
 
@@ -18,48 +19,29 @@ def run_test(
     judge_model: str = "",
     retries: int = 2,
 ) -> TestResult:
-    provider_prefixes = {
-        "openai",
-        "groq",
-        "gemini",
-        "nvidia",
-        "zen",
-        "opencode",
-        "anthropic",
-        "mistral",
-        "vertex_ai",
-        "openrouter",
-        "deepinfra",
-    }
-    normalized_model = model_id
-    if api_base:
-        prefix = model_id.split("/", 1)[0]
-        if prefix not in provider_prefixes:
-            normalized_model = f"openai/{model_id}"
-
-    timeout_seconds = int(os.getenv("TEST_TIMEOUT_SECONDS", "30"))
-    kwargs = {
-        "model": normalized_model,
-        "messages": [{"role": "user", "content": test.prompt}],
-        "api_key": api_key,
-        "max_tokens": 800,
-    }
-    if api_base:
-        kwargs["api_base"] = api_base
+    timeout_seconds = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
 
     time.sleep(0.5)
 
     last_error = None
+    actual = ""
     for attempt in range(retries + 1):
         try:
-            response = completion(**kwargs, timeout=timeout_seconds)
+            # Route through _call_llm so nvidia/ → nvidia_nim/ translation applies
+            response = _call_llm(
+                model_id,
+                api_key,
+                [{"role": "user", "content": test.prompt}],
+                max_tokens=800,
+                timeout=_make_timeout(timeout_seconds),
+            )
             actual = response.choices[0].message.content.strip()
             break
         except (RateLimitError, Timeout, APIConnectionError) as e:
             last_error = e
             if attempt < retries:
-                print(f"  [retry] {model_id} failed ({e}), attempt {attempt + 2}/{retries + 1}")
-                time.sleep(2)
+                print(f"  [retry] {model_id} attempt {attempt + 2}/{retries + 1}: {type(e).__name__}")
+                time.sleep(3)
             else:
                 actual = f"[ERROR: {str(e)}]"
         except Exception as e:

@@ -7,49 +7,36 @@ load_dotenv()
 
 class PipelineConfig:
     model_under_audit: str = ""
+    model_extractor: str = ""
     model_tester: str = ""
     model_judge: str = ""
 
+    # Role keys mapped from provider keys
     audit_api_key: str = ""
-    audit_api_base: str | None = None
+    extractor_api_key: str = ""
     tester_api_key: str = ""
     judge_api_key: str = ""
-    groq_api_key: str = ""
+    
+    audit_api_base: str | None = None
 
     def __init__(self):
+        # 1. Load Model Roles
         self.model_under_audit = self._require("MODEL_UNDER_AUDIT")
         self.model_extractor = self._require("MODEL_EXTRACTOR")
         self.model_tester = self._require("MODEL_TESTER")
         self.model_judge = self._require("MODEL_JUDGE")
-        self.audit_api_key = self._require("AUDIT_API_KEY")
-        self.audit_api_base = os.getenv("AUDIT_API_BASE") or None
-        self.extractor_api_key = self._require("EXTRACTOR_API_KEY")
-        self.tester_api_key = self._require("TESTER_API_KEY")
-        self.judge_api_key = self._require("JUDGE_API_KEY")
+        
+        # 2. Load Provider Keys
+        groq_key = self._require("GROQ_API_KEY")
+        nvidia_key = self._require("NVIDIA_API_KEY")
+        
+        # 3. Map Roles to Keys based on model prefix
+        self.extractor_api_key = groq_key if self.model_extractor.startswith("groq/") else nvidia_key
+        self.tester_api_key = groq_key if self.model_tester.startswith("groq/") else nvidia_key
+        self.judge_api_key = nvidia_key if self.model_judge.startswith("nvidia/") else groq_key
+        self.audit_api_key = nvidia_key if self.model_under_audit.startswith("nvidia/") else groq_key
+        
         self.confirm_claims = os.getenv("CONFIRM_CLAIMS", "false").lower() == "true"
-        self._validate_fallback_config()
-
-    @staticmethod
-    def _validate_fallback_config() -> None:
-        models_csv = os.getenv("FALLBACK_MODELS", "").strip()
-        if models_csv:
-            fallback_models = [m.strip() for m in models_csv.split(",") if m.strip()]
-        else:
-            single = os.getenv("FALLBACK_MODEL", "").strip()
-            fallback_models = [single] if single else []
-
-        for fallback_model in fallback_models:
-            if fallback_model.startswith("gemini/"):
-                fallback_key = (
-                    os.getenv("FALLBACK_API_KEY")
-                    or os.getenv("GEMINI_API_KEY")
-                    or os.getenv("GOOGLE_API_KEY")
-                )
-                if not fallback_key:
-                    raise EnvironmentError(
-                        "gemini/* fallback configured but no fallback key found. "
-                        "Set one of FALLBACK_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY in .env"
-                    )
 
     @staticmethod
     def _require(env_var: str) -> str:

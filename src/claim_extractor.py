@@ -1,4 +1,4 @@
-﻿"""Fetch a model card from HuggingFace Hub and extract claims via LLM."""
+"""Fetch a model card from HuggingFace Hub and extract claims via LLM."""
 import os
 import json
 import re
@@ -6,13 +6,20 @@ from huggingface_hub import HfApi, ModelCard
 
 
 def fetch_model_card(model_id: str) -> str:
+    # Strip provider prefixes (e.g. nvidia/) if present
+    hf_model_id = model_id
+    if "/" in model_id:
+        parts = model_id.split("/")
+        if parts[0] in {"nvidia", "groq", "zen", "opencode"}:
+            hf_model_id = "/".join(parts[1:])
+
     try:
-        card = ModelCard.load(model_id)
+        card = ModelCard.load(hf_model_id)
         return card.content
     except Exception:
         try:
             api = HfApi()
-            card_data = api.model_info(model_id).card_data
+            card_data = api.model_info(hf_model_id).card_data
             if card_data:
                 return str(card_data)
         except Exception:
