@@ -34,7 +34,7 @@ def _make_timeout(seconds: int) -> httpx.Timeout:
 
 def completion_with_fallback(primary_model: str, primary_key: str, messages: list, **kwargs):
     fallback_models = _fallback_models()
-    timeout_seconds = int(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
+    timeout_seconds = int(os.getenv("LLM_TIMEOUT_SECONDS", "20"))
     expect_json = bool(kwargs.pop("expect_json", False))
     kwargs["timeout"] = _make_timeout(timeout_seconds)
     
@@ -50,6 +50,7 @@ def completion_with_fallback(primary_model: str, primary_key: str, messages: lis
     last_error = None
 
     # Try primary model
+    from src import log
     try:
         primary_response = _call_llm(primary_model, primary_key, messages, **kwargs)
         if _response_is_acceptable(primary_response, expect_json):
@@ -59,10 +60,10 @@ def completion_with_fallback(primary_model: str, primary_key: str, messages: lis
             content = primary_response.choices[0].message.content or ""
         except Exception:
             pass
-        print(f"  [fallback] {primary_model} returned unusable content ({len(content)} chars), trying fallbacks...")
+        log.fallback(primary_model, fallback_models[0] if fallback_models else "none", f"unusable ({len(content)} chars)")
         last_error = RuntimeError(f"{primary_model} returned unusable content")
     except fallback_trigger_errors as e:
-        print(f"  [fallback] {primary_model} failed ({type(e).__name__}), trying fallbacks...")
+        log.fallback(primary_model, fallback_models[0] if fallback_models else "none", type(e).__name__)
         last_error = e
 
     # Try fallbacks in order
@@ -72,19 +73,19 @@ def completion_with_fallback(primary_model: str, primary_key: str, messages: lis
     for fallback_model in fallback_models:
         fallback_key = _fallback_key_for_model(fallback_model)
         if not fallback_key:
-            print(f"  [warn] skipping fallback {fallback_model} (no key)")
+            log.warn(f"skipping fallback {fallback_model} (no key)")
             continue
 
-        print(f"  [fallback] trying {fallback_model}...")
+        log.info(f"trying fallback {fallback_model}...")
         try:
             fallback_response = _call_llm(fallback_model, fallback_key, messages, **kwargs)
             if _response_is_acceptable(fallback_response, expect_json):
                 return fallback_response
-            print(f"  [fallback] {fallback_model} returned unusable content")
+            log.warn(f"{fallback_model} returned unusable content")
             last_error = RuntimeError(f"{fallback_model} returned unusable content")
             continue
         except fallback_trigger_errors as e:
-            print(f"  [fallback] {fallback_model} failed: {e}")
+            log.warn(f"{fallback_model} failed: {type(e).__name__}")
             last_error = e
             continue
         except Exception:
@@ -165,6 +166,9 @@ def _extract_json_candidate(text: str) -> str:
 
 
 def _call_llm(model: str, api_key: str, messages: list, **kwargs) -> dict:
+    import time as _time
+    from src import log
+    
     litellm_model, extra_kwargs = _to_litellm_model(model)
     kwargs["model"] = litellm_model
     kwargs["messages"] = messages
@@ -179,5 +183,13 @@ def _call_llm(model: str, api_key: str, messages: list, **kwargs) -> dict:
     for k, v in extra_kwargs.items():
         if k not in kwargs:
             kwargs[k] = v
-            
-    return completion(**kwargs)
+    
+    t0 = _time.monotonic()
+    resp = completion(**kwargs)
+    latency_ms = int((_time.monotonic() - t0) * 1000)
+    try:
+        tokens = resp.usage.total_tokens if resp.usage else None
+    except Exception:
+        tokens = None
+    log.llm_call(litellm_model, latency_ms, tokens)
+    return resp
