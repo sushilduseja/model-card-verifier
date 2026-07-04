@@ -5,7 +5,7 @@ description = "Automated audit pipeline that extracts safety/capability claims f
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "litellm>=1.83.0",
+    "litellm>=1.84.0",
     "huggingface-hub>=1.0.0",
     "httpx>=0.27.0",
     "pydantic>=2.0.0",
